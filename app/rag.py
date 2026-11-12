@@ -1,12 +1,32 @@
+import os
 import re
+from functools import cache
 from pathlib import Path
 
+import numpy as np
 import pypdf
 from dotenv import load_dotenv
+from google import genai
+from google.genai import types
 
 load_dotenv()
 
 HEADING = re.compile(r"^(\d+)\. (.+)")
+MIN_SCORE = 0.65  # cosine of the top hit; answerable questions score >= 0.717, off-topic ones <= 0.58
+NOT_FOUND = "I could not find this in the plant documents I have. Please check with your supervisor or the QMS."
+SYSTEM = (
+    "You help shop-floor supervisors at a manufacturing plant. Answer ONLY from the numbered excerpts. "
+    "If the excerpts do not contain the answer, reply with exactly NOT_FOUND and nothing else. "
+    "Be short and practical: give exact values with units, short numbered steps for procedures, and include "
+    "any conditions, exceptions or safety warnings the excerpt states. Name the document number you used. "
+    "On the last line write SOURCES: followed by the excerpt numbers you used, comma separated."
+)
+INDEX = None  # (chunks, matrix), built once by build_index()
+
+
+@cache
+def client():
+    return genai.Client()  # reads GEMINI_API_KEY
 
 
 def load_chunks(docs_dir="docs"):
@@ -56,3 +76,55 @@ def load_chunks(docs_dir="docs"):
                 "text": f"{tag}\n{body}",
             })
     return chunks
+
+
+def embed(texts, task_type):
+    res = client().models.embed_content(
+        model=os.getenv("GEMINI_EMBED_MODEL", "gemini-embedding-001"),
+        contents=texts,
+        config=types.EmbedContentConfig(task_type=task_type),
+    )
+    m = np.array([e.values for e in res.embeddings], dtype=np.float32)
+    return m / np.linalg.norm(m, axis=1, keepdims=True)
+
+
+def build_index():
+    global INDEX
+    chunks = load_chunks()
+    INDEX = (chunks, embed([c["text"] for c in chunks], "RETRIEVAL_DOCUMENT"))
+    return INDEX
+
+
+def retrieve(question, k=4):
+    chunks, matrix = INDEX or build_index()
+    scores = matrix @ embed([question], "RETRIEVAL_QUERY")[0]
+    return [(chunks[i], float(scores[i])) for i in np.argsort(-scores)[:k]]
+
+
+def answer(question):
+    hits = retrieve(question)
+    if hits[0][1] < MIN_SCORE:
+        return {"answer": NOT_FOUND, "found": False, "sources": []}
+
+    excerpts = "\n\n".join(f"[{n}] {c['text']}" for n, (c, _) in enumerate(hits, 1))
+    reply = client().models.generate_content(
+        model=os.getenv("GEMINI_CHAT_MODEL", "gemini-3.5-flash-lite"),
+        contents=f"Excerpts:\n\n{excerpts}\n\nQuestion: {question}",
+        config=types.GenerateContentConfig(
+            system_instruction=SYSTEM,
+            temperature=0,
+            thinking_config=types.ThinkingConfig(thinking_level="low"),
+        ),
+    ).text.strip()
+    if reply.startswith("NOT_FOUND"):
+        return {"answer": NOT_FOUND, "found": False, "sources": []}
+
+    lines = reply.splitlines()
+    used = []
+    if lines and (m := re.match(r"(?i)\s*SOURCES:\s*(.*)", lines[-1])):
+        lines.pop()
+        used = [int(n) for n in re.findall(r"\d+", m[1]) if 1 <= int(n) <= len(hits)]
+    used = sorted(set(used)) or [1]  # fall back to the top excerpt
+    keys = ("doc_no", "rev", "effective", "title", "section", "heading", "page", "file")
+    sources = [{**{key: hits[n - 1][0][key] for key in keys}, "score": hits[n - 1][1]} for n in used]
+    return {"answer": "\n".join(lines).strip(), "found": True, "sources": sources}
