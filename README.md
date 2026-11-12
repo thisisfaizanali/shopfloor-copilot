@@ -43,6 +43,16 @@ On macOS or Linux, activate with `source .venv/bin/activate` and use `python` in
 
 Open http://localhost:8000.
 
+## Run with Docker (optional)
+
+Copy `.env.example` to `.env` and add your key first, then:
+
+```powershell
+docker compose up --build
+```
+
+Open http://localhost:8000. From a phone, use the same steps as below (the firewall note still applies). Stop with Ctrl+C or `docker compose down`.
+
 ## Open it from a phone on the same Wi-Fi
 
 1. Find the laptop's IP address with `ipconfig` (the Wi-Fi adapter's IPv4 address).
@@ -75,7 +85,7 @@ Runs the 5 sample questions, my own 5 questions, revision checks and an off-topi
 
 ## My 5 questions and the app's answers
 
-Answers below are copied unedited from a run of `eval.py`.
+Answers below are copied unedited from the app's output.
 
 ### O1. A lot of 600 pieces arrived. How many samples do we inspect and how many minor defects are allowed?
 
@@ -83,14 +93,10 @@ Found. Sources: QC-SOP-014 Rev 04, section 4 (Sampling Plan).
 
 Revision check: QC-SOP-014 Rev 03 (effective 15-Mar-2023) also matched your question but is superseded by Rev 04 (effective 01-Jul-2026). This answer uses Rev 04 only. Do not use printed Rev 03 copies.
 
-> To determine the number of samples to inspect and the minor defect allowance for a lot of 600 pieces, follow the sampling plan:
->
-> 1. Locate the lot size range in the sampling plan: 501 - 3,200 pieces.
-> 2. Inspect **32 samples** drawn at random.
-> 3. Accept the lot if there are **1 or fewer** minor defects.
-> 4. Reject the lot if there are **2 or more** minor defects.
->
-> Document QC-SOP-014 Rev 04
+> For a lot size of 600 pieces (falling into the 501 - 3,200 range):
+> - Samples to inspect: 32 pieces
+> - Accept if minor defects are: 1 or fewer
+> - Reject if minor defects are: 2 or more
 
 ### O2. The supplier did not send the material test certificate. Can we still inspect the lot?
 
@@ -181,6 +187,8 @@ notes/             AI challenge transcript
 eval.py            sample, own and revision-check questions with PASS/FAIL
 THINKING.md        user research, journey, AI critique, improvement, reflection
 requirements.txt   pinned dependencies
+Dockerfile         container image for the app
+compose.yml        docker compose setup (reads .env)
 .env.example       template for the Gemini key and model names
 ```
 

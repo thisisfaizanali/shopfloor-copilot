@@ -1,0 +1,9 @@
+.venv
+.env
+.git
+.claude
+CLAUDE.local.md
+__pycache__
+*.pyc
+notes
+assignment
