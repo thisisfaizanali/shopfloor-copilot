@@ -19,6 +19,7 @@ SYSTEM = (
     "If the excerpts do not contain the answer, reply with exactly NOT_FOUND and nothing else. "
     "Be short and practical: give exact values with units, short numbered steps for procedures, and include "
     "any conditions, exceptions or safety warnings the excerpt states. Name the document number you used. "
+    "Do not write excerpt numbers like [1] in the answer text. Refer to documents only by document number and revision. "
     "On the last line write SOURCES: followed by the excerpt numbers you used, comma separated."
 )
 INDEX = None  # (chunks, matrix), built once by build_index()
@@ -107,7 +108,7 @@ def answer(question):
         return {"answer": NOT_FOUND, "found": False, "sources": []}
 
     excerpts = "\n\n".join(f"[{n}] {c['text']}" for n, (c, _) in enumerate(hits, 1))
-    reply = client().models.generate_content(
+    response = client().models.generate_content(
         model=os.getenv("GEMINI_CHAT_MODEL", "gemini-3.5-flash-lite"),
         contents=f"Excerpts:\n\n{excerpts}\n\nQuestion: {question}",
         config=types.GenerateContentConfig(
@@ -115,8 +116,9 @@ def answer(question):
             temperature=0,
             thinking_config=types.ThinkingConfig(thinking_level="low"),
         ),
-    ).text.strip()
-    if reply.startswith("NOT_FOUND"):
+    )
+    reply = (response.text or "").strip()  # text is None when the reply is blocked or empty
+    if not reply or reply.startswith("NOT_FOUND"):
         return {"answer": NOT_FOUND, "found": False, "sources": []}
 
     lines = reply.splitlines()
@@ -127,4 +129,7 @@ def answer(question):
     used = sorted(set(used)) or [1]  # fall back to the top excerpt
     keys = ("doc_no", "rev", "effective", "title", "section", "heading", "page", "file")
     sources = [{**{key: hits[n - 1][0][key] for key in keys}, "score": hits[n - 1][1]} for n in used]
-    return {"answer": "\n".join(lines).strip(), "found": True, "sources": sources}
+    text = re.sub(r"\s*\[\d+(?:\s*,\s*\d+)*\]", "", "\n".join(lines))  # excerpt refs like [1], [2, 3]
+    text = re.sub(r"\[(Document:[^\]]*)\]", r"\1", text)  # "[Document: X]" -> "Document: X"
+    text = re.sub(r"\n\s*Document:\s*$", "", text.strip())  # dangling "Document:" last line
+    return {"answer": text.strip(), "found": True, "sources": sources}
