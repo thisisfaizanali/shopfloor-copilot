@@ -6,10 +6,12 @@
 <title>Shopfloor Copilot</title>
 <style>
   :root { --bg:#f5f6f8; --fg:#111; --muted:#555; --card:#fff; --line:#c9cdd3; --accent:#0b5fd6; --on-accent:#fff;
-          --warn-bg:#fff3cd; --warn-line:#b07d00; --err-bg:#fde8e8; --err-line:#c62828; }
+          --warn-bg:#fff3cd; --warn-line:#b07d00; --err-bg:#fde8e8; --err-line:#c62828;
+          --info-bg:#e8f1fd; --info-line:#0b5fd6; --ok-bg:#e3f4e6; --ok-fg:#1b6b2f; }
   @media (prefers-color-scheme: dark) {
     :root { --bg:#111418; --fg:#f2f4f7; --muted:#aab1bb; --card:#1b2027; --line:#3a424d; --accent:#5c9cff; --on-accent:#0a0f16;
-            --warn-bg:#3a2f0b; --warn-line:#e0a800; --err-bg:#3d1515; --err-line:#ff6b6b; }
+            --warn-bg:#3a2f0b; --warn-line:#e0a800; --err-bg:#3d1515; --err-line:#ff6b6b;
+            --info-bg:#12233d; --info-line:#5c9cff; --ok-bg:#12301b; --ok-fg:#7fd994; }
   }
   * { box-sizing: border-box; }
   body { margin:0; background:var(--bg); color:var(--fg); font:18px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
@@ -29,6 +31,10 @@
   .card { margin-top:16px; padding:16px; background:var(--card); border:2px solid var(--line); border-radius:10px; }
   .card.warn { background:var(--warn-bg); border-color:var(--warn-line); }
   .card.err { background:var(--err-bg); border-color:var(--err-line); }
+  .notice { margin-bottom:12px; padding:10px 12px; background:var(--info-bg); border:2px solid var(--info-line); border-radius:8px; font-size:.9rem; }
+  .notice h2 { margin:0 0 4px; font-size:.95rem; }
+  .badge { display:inline-block; margin-left:6px; padding:0 6px; color:var(--ok-fg); background:var(--ok-bg); border:1px solid var(--ok-fg);
+           border-radius:4px; font-size:.7rem; font-weight:700; vertical-align:middle; }
   .card h2 { margin:0 0 8px; font-size:1.05rem; }
   .text { white-space:pre-wrap; overflow-wrap:anywhere; }
   .sources { margin-top:16px; padding-top:12px; border-top:1px solid var(--line); }
@@ -70,7 +76,8 @@
     box.append(el("h2", "", "Sources"));
     for (const s of list) {
       const a = el("a", "src", `${s.doc_no} Rev ${s.rev} | Section ${s.section}. ${s.heading} | p.${s.page}`);
-      a.href = `/pdfs/${encodeURIComponent(s.file)}#page=${s.page}`;
+      if (s.current) a.append(el("span", "badge", "CURRENT"));
+      a.href =`/pdfs/${encodeURIComponent(s.file)}#page=${s.page}`;
       a.target = "_blank";
       a.rel = "noopener";
       a.append(el("small", "", `${s.title}, effective ${s.effective}`));
@@ -95,6 +102,11 @@
       const data = await res.json().catch(() => ({}));
       if (res.ok && data.found) {
         result = card("", "", data.answer);
+        if (data.notice) {
+          const n = el("div", "notice");
+          n.append(el("h2", "", "Revision check"), el("div", "", data.notice));
+          result.prepend(n);
+        }
         result.append(sources(data.sources));
       } else if (res.ok) {
         result = card("warn", "Not found in the plant documents", data.answer);
