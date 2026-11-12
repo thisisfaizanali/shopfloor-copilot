@@ -76,6 +76,18 @@ def load_chunks(docs_dir="docs"):
                 "file": path.name,
                 "text": f"{tag}\n{body}",
             })
+
+    # Mark revisions: only the highest revision of each document is current.
+    latest = {}
+    for c in chunks:
+        if int(c["rev"]) > int(latest.get(c["doc_no"], {"rev": -1})["rev"]):
+            latest[c["doc_no"]] = c
+    for c in chunks:
+        new = latest[c["doc_no"]]
+        c["current"] = c["rev"] == new["rev"]
+        if not c["current"]:
+            c["superseded_by"] = new["rev"]
+            c["superseded_by_effective"] = new["effective"]
     return chunks
 
 
@@ -103,9 +115,18 @@ def retrieve(question, k=4):
 
 
 def answer(question):
-    hits = retrieve(question)
-    if hits[0][1] < MIN_SCORE:
-        return {"answer": NOT_FOUND, "found": False, "sources": []}
+    ranked = retrieve(question, k=8)
+    hits = [h for h in ranked if h[0]["current"]][:4]  # only current revisions reach the model
+    if not hits or hits[0][1] < MIN_SCORE:
+        return {"answer": NOT_FOUND, "found": False, "sources": [], "notice": None}
+    notices = {}  # one notice per superseded doc_no + rev
+    for c, _ in ranked[:4]:
+        if not c["current"]:
+            notices[(c["doc_no"], c["rev"])] = (
+                f"{c['doc_no']} Rev {c['rev']} (effective {c['effective']}) also matched your question but is "
+                f"superseded by Rev {c['superseded_by']} (effective {c['superseded_by_effective']}). "
+                f"This answer uses Rev {c['superseded_by']} only. Do not use printed Rev {c['rev']} copies."
+            )
 
     excerpts = "\n\n".join(f"[{n}] {c['text']}" for n, (c, _) in enumerate(hits, 1))
     response = client().models.generate_content(
@@ -119,7 +140,7 @@ def answer(question):
     )
     reply = (response.text or "").strip()  # text is None when the reply is blocked or empty
     if not reply or reply.startswith("NOT_FOUND"):
-        return {"answer": NOT_FOUND, "found": False, "sources": []}
+        return {"answer": NOT_FOUND, "found": False, "sources": [], "notice": None}
 
     lines = reply.splitlines()
     used = []
@@ -128,8 +149,8 @@ def answer(question):
         used = [int(n) for n in re.findall(r"\d+", m[1]) if 1 <= int(n) <= len(hits)]
     used = sorted(set(used)) or [1]  # fall back to the top excerpt
     keys = ("doc_no", "rev", "effective", "title", "section", "heading", "page", "file")
-    sources = [{**{key: hits[n - 1][0][key] for key in keys}, "score": hits[n - 1][1]} for n in used]
+    sources = [{**{key: hits[n - 1][0][key] for key in keys}, "score": hits[n - 1][1], "current": True} for n in used]
     text = re.sub(r"\s*\[\d+(?:\s*,\s*\d+)*\]", "", "\n".join(lines))  # excerpt refs like [1], [2, 3]
     text = re.sub(r"\[(Document:[^\]]*)\]", r"\1", text)  # "[Document: X]" -> "Document: X"
     text = re.sub(r"\n\s*Document:\s*$", "", text.strip())  # dangling "Document:" last line
-    return {"answer": text.strip(), "found": True, "sources": sources}
+    return {"answer": text.strip(), "found": True, "sources": sources, "notice": " ".join(notices.values()) or None}
