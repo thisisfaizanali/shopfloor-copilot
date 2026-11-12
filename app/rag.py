@@ -153,4 +153,5 @@ def answer(question):
     text = re.sub(r"\s*\[\d+(?:\s*,\s*\d+)*\]", "", "\n".join(lines))  # excerpt refs like [1], [2, 3]
     text = re.sub(r"\[(Document:[^\]]*)\]", r"\1", text)  # "[Document: X]" -> "Document: X"
     text = re.sub(r"\n\s*Document:\s*$", "", text.strip())  # dangling "Document:" last line
+    text = text.replace("**", "")  # the UI shows plain text, so drop markdown bold markers
     return {"answer": text.strip(), "found": True, "sources": sources, "notice": " ".join(notices.values()) or None}
